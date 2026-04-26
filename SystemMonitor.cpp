@@ -5,9 +5,12 @@
 #include <chrono>
 
 constexpr int CPU_HISTORY_SIZE = 60;
-constexpr int TIMER_INTERVAL = 2000;
 
 SystemMonitor::SystemMonitor() {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    m_coreCount = (int)si.dwNumberOfProcessors;
+    if (m_coreCount < 1) m_coreCount = 1;
     InitCpuQuery();
 }
 
@@ -75,6 +78,7 @@ void SystemMonitor::GetBatteryInfo() {
         m_sysInfo.batteryPercent = m_sysInfo.batteryPercentValid ? ps.BatteryLifePercent : 0;
         m_sysInfo.batteryCharging = (ps.ACLineStatus == 1);
     } else {
+        Logger::Instance().Warn(L"GetSystemPowerStatus failed");
         m_sysInfo.hasBattery = false;
         m_sysInfo.batteryPercentValid = false;
         m_sysInfo.batteryPercent = 0;
@@ -201,7 +205,7 @@ void SystemMonitor::GetNetworkSpeed() {
             if (prev.name == ad.name && prev.prevBytesRecv > 0) {
                 ad.prevBytesRecv = prev.bytesRecv;
                 ad.prevBytesSent = prev.bytesSent;
-                double interval = TIMER_INTERVAL / 1000.0;
+                double interval = m_refreshIntervalMs / 1000.0;
                 ad.downloadSpeed = (recv > prev.bytesRecv ? recv - prev.bytesRecv : 0) / interval;
                 ad.uploadSpeed = (sent > prev.bytesSent ? sent - prev.bytesSent : 0) / interval;
                 break;
@@ -222,7 +226,10 @@ void SystemMonitor::GetNetworkSpeed() {
 std::vector<ProcessInfo> SystemMonitor::GetTopProcessesByMem(int topN) {
     std::vector<ProcessInfo> procs;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE) return procs;
+    if (snap == INVALID_HANDLE_VALUE) {
+        Logger::Instance().Warn(L"GetTopProcessesByMem: CreateToolhelp32Snapshot failed");
+        return procs;
+    }
     PROCESSENTRY32W pe = {};
     pe.dwSize = sizeof(pe);
     if (Process32FirstW(snap, &pe)) {
@@ -232,9 +239,9 @@ std::vector<ProcessInfo> SystemMonitor::GetTopProcessesByMem(int topN) {
                 PROCESS_MEMORY_COUNTERS pmc = {};
                 if (GetProcessMemoryInfo(hProc, &pmc, sizeof(pmc))) {
                     ProcessInfo pi;
+                    pi.pid = pe.th32ProcessID;
                     pi.name = pe.szExeFile;
                     pi.memBytes = pmc.WorkingSetSize;
-                    pi.cpuPercent = 0;
                     procs.push_back(pi);
                 }
                 CloseHandle(hProc);
@@ -244,6 +251,54 @@ std::vector<ProcessInfo> SystemMonitor::GetTopProcessesByMem(int topN) {
     CloseHandle(snap);
     std::sort(procs.begin(), procs.end(), [](const ProcessInfo& a, const ProcessInfo& b) {
         return a.memBytes > b.memBytes;
+    });
+    if ((int)procs.size() > topN) procs.resize(topN);
+    return procs;
+}
+
+std::vector<ProcessInfo> SystemMonitor::GetTopProcessesByCpu(int topN) {
+    std::vector<ProcessInfo> procs;
+    ULONGLONG now = GetTickCount64();
+    ULONGLONG deltaWallMs = now - m_lastProcCpuTick;
+    m_lastProcCpuTick = now;
+
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) {
+        Logger::Instance().Warn(L"GetTopProcessesByCpu: CreateToolhelp32Snapshot failed");
+        return procs;
+    }
+
+    PROCESSENTRY32W pe = {};
+    pe.dwSize = sizeof(pe);
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
+            if (!hProc) continue;
+
+            FILETIME ftCreation, ftExit, ftKernel, ftUser;
+            if (GetProcessTimes(hProc, &ftCreation, &ftExit, &ftKernel, &ftUser)) {
+                ULONGLONG total = ((ULARGE_INTEGER*)&ftKernel)->QuadPart
+                                + ((ULARGE_INTEGER*)&ftUser)->QuadPart;
+                ProcessInfo pi;
+                pi.pid = pe.th32ProcessID;
+                pi.name = pe.szExeFile;
+
+                auto it = m_prevProcCpuTimes.find(pi.pid);
+                if (it != m_prevProcCpuTimes.end() && deltaWallMs > 0) {
+                    ULONGLONG delta = total - it->second;
+                    double cpuMs = delta / 10000.0;
+                    pi.cpuPercent = cpuMs / (double)deltaWallMs / m_coreCount * 100.0;
+                }
+                m_prevProcCpuTimes[pi.pid] = total;
+                procs.push_back(pi);
+            }
+            CloseHandle(hProc);
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+
+    std::sort(procs.begin(), procs.end(), [](const ProcessInfo& a, const ProcessInfo& b) {
+        return a.cpuPercent > b.cpuPercent;
     });
     if ((int)procs.size() > topN) procs.resize(topN);
     return procs;
@@ -284,13 +339,22 @@ std::wstring SystemMonitor::GetSystemUptime() {
 
 std::wstring SystemMonitor::GetOSVersion() {
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    if (!ntdll) return L"未知";
+    if (!ntdll) {
+        Logger::Instance().Warn(L"GetOSVersion: GetModuleHandle ntdll failed");
+        return L"未知";
+    }
     typedef LONG(WINAPI * RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
     auto RtlGetVersion = (RtlGetVersionPtr)GetProcAddress(ntdll, "RtlGetVersion");
-    if (!RtlGetVersion) return L"未知";
+    if (!RtlGetVersion) {
+        Logger::Instance().Warn(L"GetOSVersion: GetProcAddress RtlGetVersion failed");
+        return L"未知";
+    }
     RTL_OSVERSIONINFOW osvi = {};
     osvi.dwOSVersionInfoSize = sizeof(osvi);
-    if (RtlGetVersion(&osvi) != 0) return L"未知";
+    if (RtlGetVersion(&osvi) != 0) {
+        Logger::Instance().Warn(L"GetOSVersion: RtlGetVersion call failed");
+        return L"未知";
+    }
     wchar_t buf[64];
     swprintf_s(buf, L"Windows %lu.%lu Build %lu", osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
     return buf;
@@ -320,6 +384,7 @@ void SystemMonitor::Collect() {
     m_collectCount++;
     if (m_collectCount % 3 == 1) {
         m_sysInfo.topMemProcs = GetTopProcessesByMem(5);
+        m_sysInfo.topCpuProcs = GetTopProcessesByCpu(5);
     }
     m_sysInfo.disks = GetDiskInfo();
 

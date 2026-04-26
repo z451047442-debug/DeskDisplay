@@ -17,6 +17,7 @@ public:
                 const std::deque<double>& cpuHistory, double cpuMax, double cpuAvg,
                 int cpuHistorySize);
     void Resize(int width, int height);
+    void SetOpacity(int opacity) { m_opacity = opacity; }
 
 private:
     void DrawTitle(Gdiplus::Graphics& g, int w, int& y);
@@ -39,6 +40,7 @@ private:
 
     int m_width;
     int m_height;
+    int m_opacity = 255;
 
     HDC m_memDC = nullptr;
     HBITMAP m_hBmp = nullptr;

@@ -26,7 +26,9 @@ int Config::GetWindowX(int defaultX) const { return ReadInt(L"Window", L"X", def
 int Config::GetWindowY(int defaultY) const { return ReadInt(L"Window", L"Y", defaultY); }
 int Config::GetRefreshMs(int defaultMs) const { return ReadInt(L"General", L"RefreshMs", defaultMs); }
 int Config::GetOpacity(int defaultOpacity) const { return ReadInt(L"General", L"Opacity", defaultOpacity); }
+bool Config::GetClickThrough(bool defaultVal) const { return ReadInt(L"General", L"ClickThrough", defaultVal ? 1 : 0) != 0; }
 
 void Config::SetWindowPos(int x, int y) { WriteInt(L"Window", L"X", x); WriteInt(L"Window", L"Y", y); }
 void Config::SetRefreshMs(int ms) { WriteInt(L"General", L"RefreshMs", ms); }
 void Config::SetOpacity(int opacity) { WriteInt(L"General", L"Opacity", opacity); }
+void Config::SetClickThrough(bool enabled) { WriteInt(L"General", L"ClickThrough", enabled ? 1 : 0); }

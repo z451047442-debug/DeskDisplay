@@ -137,6 +137,9 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent Condition="'$(DeskDisplayCertPassword)' != ''">
+      <Command>signtool sign /fd SHA256 /f "$(ProjectDir)DeskDisplay.pfx" /p %25DeskDisplayCertPassword%25 /tr http://timestamp.digicert.com /td SHA256 "$(TargetPath)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Config.h" />

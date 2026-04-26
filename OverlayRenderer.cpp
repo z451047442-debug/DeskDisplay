@@ -5,13 +5,35 @@
 constexpr int MARGIN = 10;
 constexpr int LINE_HEIGHT = 18;
 
+static bool IsFontInstalled(const wchar_t* name) {
+    Gdiplus::InstalledFontCollection installed;
+    int count = installed.GetFamilyCount();
+    if (count <= 0) return false;
+    std::vector<Gdiplus::FontFamily> families(count);
+    int found = 0;
+    installed.GetFamilies(count, families.data(), &found);
+    for (int i = 0; i < found; i++) {
+        wchar_t familyName[LF_FACESIZE] = {};
+        families[i].GetFamilyName(familyName);
+        if (_wcsicmp(familyName, name) == 0) return true;
+    }
+    return false;
+}
+
+static const wchar_t* ResolveFont(const wchar_t* primary, const wchar_t* fallback) {
+    return IsFontInstalled(primary) ? primary : fallback;
+}
+
 OverlayRenderer::OverlayRenderer(int width, int height)
     : m_width(width), m_height(height) {
     CreateBackBuffer();
 
-    m_titleFont = new Gdiplus::Font(L"Microsoft YaHei UI", 11, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
-    m_normalFont = new Gdiplus::Font(L"Microsoft YaHei UI", 9, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
-    m_smallFont = new Gdiplus::Font(L"Consolas", 8, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+    const wchar_t* uiFont = ResolveFont(L"Microsoft YaHei UI", L"Segoe UI");
+    const wchar_t* monoFont = ResolveFont(L"Consolas", L"Courier New");
+
+    m_titleFont = new Gdiplus::Font(uiFont, 11, Gdiplus::FontStyleBold, Gdiplus::UnitPoint);
+    m_normalFont = new Gdiplus::Font(uiFont, 9, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
+    m_smallFont = new Gdiplus::Font(monoFont, 8, Gdiplus::FontStyleRegular, Gdiplus::UnitPoint);
 
     m_bgBrush = new Gdiplus::SolidBrush(Gdiplus::Color(200, 20, 20, 30));
     m_whiteBrush = new Gdiplus::SolidBrush(Gdiplus::Color(255, 255, 255, 255));
@@ -158,6 +180,17 @@ void OverlayRenderer::DrawCpuSection(Gdiplus::Graphics& g, int w, int& y, const 
         g.DrawLines(m_graphPen, pts.data(), (int)pts.size());
     }
     y += chartH + 8;
+
+    if (!sysInfo.topCpuProcs.empty()) {
+        DrawTextLine(g, y, L"CPU 占用 Top 5:", m_dimBrush);
+        for (auto& p : sysInfo.topCpuProcs) {
+            wchar_t buf[128];
+            swprintf_s(buf, L"%s  %.1f%%", p.name.c_str(), p.cpuPercent);
+            g.DrawString(buf, -1, m_smallFont,
+                         Gdiplus::PointF((float)(MARGIN + 10), (float)y), m_dimBrush);
+            y += LINE_HEIGHT - 2;
+        }
+    }
 }
 
 void OverlayRenderer::DrawBatterySection(Gdiplus::Graphics& g, int w, int& y, const SysInfo& sysInfo) {
@@ -277,7 +310,7 @@ void OverlayRenderer::Render(HWND hWnd, const SysInfo& sysInfo, const NetworkSta
     POINT ptSrc = { 0, 0 };
     BLENDFUNCTION blend = {};
     blend.BlendOp = AC_SRC_OVER;
-    blend.SourceConstantAlpha = 255;
+    blend.SourceConstantAlpha = m_opacity;
     blend.AlphaFormat = AC_SRC_ALPHA;
     UpdateLayeredWindow(hWnd, hdc, nullptr, &sz, m_memDC, &ptSrc, 0, &blend, ULW_ALPHA);
     ReleaseDC(hWnd, hdc);

@@ -28,3 +28,8 @@ CopilotIndices/
 # Generated files
 *.aps
 *.log
+*.rc.tmp
+
+# Code signing
+*.pfx
+*.ps1

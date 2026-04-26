@@ -1,0 +1,22 @@
+# Generate a self-signed code signing certificate for DeskDisplay.
+# Copy this file to gen-cert.ps1, change the password, then run it.
+# gen-cert.ps1 is gitignored — your password stays local.
+
+$certPassword = 'CHANGE_ME'
+$pwd = ConvertTo-SecureString -String $certPassword -Force -AsPlainText
+
+$cert = New-SelfSignedCertificate -Type CodeSigningCert `
+    -Subject 'CN=DeskDisplay' `
+    -CertStoreLocation 'Cert:\CurrentUser\My' `
+    -KeyExportPolicy Exportable `
+    -KeySpec Signature `
+    -NotAfter (Get-Date).AddYears(5)
+
+$pfxPath = Join-Path $PSScriptRoot 'DeskDisplay.pfx'
+Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd
+
+Write-Output "SUCCESS"
+Write-Output "Thumbprint: $($cert.Thumbprint)"
+Write-Output ""
+Write-Output "Next step: set environment variable DeskDisplayCertPassword=$certPassword"
+Write-Output "  [System.Environment]::SetEnvironmentVariable('DeskDisplayCertPassword', '$certPassword', 'User')"

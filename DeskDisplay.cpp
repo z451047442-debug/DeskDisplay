@@ -7,7 +7,6 @@
 #include "Logger.h"
 
 constexpr int MAX_LOADSTRING = 100;
-constexpr int TIMER_INTERVAL = 2000;
 constexpr int WINDOW_WIDTH = 320;
 constexpr int WINDOW_HEIGHT = 700;
 
@@ -17,6 +16,12 @@ WCHAR szWindowClass[MAX_LOADSTRING];
 ULONG_PTR gdiplusToken;
 
 constexpr int IDM_TOGGLE_CLICKTHROUGH = 110;
+constexpr int IDM_REFRESH_1000 = 111;
+constexpr int IDM_REFRESH_2000 = 112;
+constexpr int IDM_REFRESH_5000 = 113;
+constexpr int IDM_OPACITY_204 = 114;
+constexpr int IDM_OPACITY_230 = 115;
+constexpr int IDM_OPACITY_255 = 116;
 constexpr int HK_CLICKTHROUGH = 1;
 
 struct AppState {
@@ -51,6 +56,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow, SystemMonitor* monitor,
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int x = config->GetWindowX(screenW - WINDOW_WIDTH - 20);
     int posY = config->GetWindowY(50);
+    int refreshMs = config->GetRefreshMs(2000);
+    int opacity = config->GetOpacity(255);
+
+    monitor->SetRefreshIntervalMs(refreshMs);
+    renderer->SetOpacity(opacity);
 
     HWND hWnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -62,11 +72,16 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow, SystemMonitor* monitor,
     if (!hWnd) return FALSE;
 
     auto* state = new AppState{ monitor, renderer, config };
+    state->clickThrough = config->GetClickThrough(false);
+    if (state->clickThrough) {
+        LONG_PTR exStyle = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+    }
     SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
 
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
-    SetTimer(hWnd, IDT_REFRESH, TIMER_INTERVAL, nullptr);
+    SetTimer(hWnd, IDT_REFRESH, refreshMs, nullptr);
     if (!RegisterHotKey(hWnd, HK_CLICKTHROUGH, 0, VK_F8)) {
         Logger::Instance().Warn(L"RegisterHotKey F8 failed -- hotkey may be in use");
     }
@@ -116,14 +131,41 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         break;
     case WM_RBUTTONUP: {
         auto* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-        bool ct = state ? state->clickThrough : false;
+        if (!state || !state->config) break;
+        bool ct = state->clickThrough;
+        int curRefresh = state->config->GetRefreshMs(2000);
+        int curOpacity = state->config->GetOpacity(255);
+
         HMENU hMenu = CreatePopupMenu();
+        HMENU hRefreshMenu = CreatePopupMenu();
+        HMENU hOpacityMenu = CreatePopupMenu();
+
+        AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 1000 ? MF_CHECKED : 0),
+                    IDM_REFRESH_1000, L"1 秒");
+        AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 2000 ? MF_CHECKED : 0),
+                    IDM_REFRESH_2000, L"2 秒");
+        AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 5000 ? MF_CHECKED : 0),
+                    IDM_REFRESH_5000, L"5 秒");
+
+        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 204 ? MF_CHECKED : 0),
+                    IDM_OPACITY_204, L"80%");
+        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 230 ? MF_CHECKED : 0),
+                    IDM_OPACITY_230, L"90%");
+        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 255 ? MF_CHECKED : 0),
+                    IDM_OPACITY_255, L"100%");
+
+        AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hRefreshMenu),
+                    L"刷新间隔(&R)");
+        AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hOpacityMenu),
+                    L"透明度(&O)");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING | (ct ? MF_CHECKED : 0), IDM_TOGGLE_CLICKTHROUGH,
                     L"点击穿透(&T)");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, IDM_ABOUT, L"关于(&A)...");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, IDM_EXIT, L"退出(&X)");
+
         POINT pt;
         GetCursorPos(&pt);
         TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, nullptr);
@@ -143,6 +185,33 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 } else {
                     SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
                 }
+                if (st->config) st->config->SetClickThrough(st->clickThrough);
+            }
+            break;
+        }
+        case IDM_REFRESH_1000:
+        case IDM_REFRESH_2000:
+        case IDM_REFRESH_5000: {
+            auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+            if (st && st->config && st->monitor) {
+                int newMs = (wmId == IDM_REFRESH_1000) ? 1000 :
+                            (wmId == IDM_REFRESH_2000) ? 2000 : 5000;
+                KillTimer(hWnd, IDT_REFRESH);
+                SetTimer(hWnd, IDT_REFRESH, newMs, nullptr);
+                st->monitor->SetRefreshIntervalMs(newMs);
+                st->config->SetRefreshMs(newMs);
+            }
+            break;
+        }
+        case IDM_OPACITY_204:
+        case IDM_OPACITY_230:
+        case IDM_OPACITY_255: {
+            auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+            if (st && st->config && st->renderer) {
+                int newOpacity = (wmId == IDM_OPACITY_204) ? 204 :
+                                 (wmId == IDM_OPACITY_230) ? 230 : 255;
+                st->renderer->SetOpacity(newOpacity);
+                st->config->SetOpacity(newOpacity);
             }
             break;
         }
@@ -168,6 +237,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 } else {
                     SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
                 }
+                if (st->config) st->config->SetClickThrough(st->clickThrough);
             }
         }
         break;

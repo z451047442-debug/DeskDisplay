@@ -3,9 +3,11 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <unordered_map>
 #include <windows.h>
 
 struct ProcessInfo {
+    DWORD pid = 0;
     std::wstring name;
     double cpuPercent = 0.0;
     SIZE_T memBytes = 0;
@@ -49,6 +51,7 @@ struct SysInfo {
     std::wstring systemUptime;
     std::wstring osVersion;
     std::vector<ProcessInfo> topMemProcs;
+    std::vector<ProcessInfo> topCpuProcs;
     std::vector<DiskInfo> disks;
 };
 
@@ -61,12 +64,15 @@ public:
     SystemMonitor& operator=(const SystemMonitor&) = delete;
 
     void Collect();
+    void SetRefreshIntervalMs(int ms) { m_refreshIntervalMs = ms; }
 
     const SysInfo& GetSysInfo() const { return m_sysInfo; }
     const NetworkStats& GetNetStats() const { return m_netStats; }
     double GetCpuMax() const { return m_cpuMax; }
     double GetCpuAvg() const { return m_cpuAvg; }
     const std::deque<double>& GetCpuHistory() const { return m_cpuHistory; }
+
+    std::vector<ProcessInfo> GetTopProcessesByCpu(int topN);
 
     static std::wstring FormatBytes(double bytes);
     static std::wstring FormatSpeed(double bytesPerSec);
@@ -96,8 +102,12 @@ private:
     PDH_HCOUNTER m_perCoreCounter = nullptr;
     std::deque<double> m_cpuHistory;
     int m_collectCount = 0;
+    int m_refreshIntervalMs = 2000;
     double m_cpuMax = 0.0;
     double m_cpuAvg = 0.0;
+    int m_coreCount = 1;
+    std::unordered_map<DWORD, ULONGLONG> m_prevProcCpuTimes;
+    ULONGLONG m_lastProcCpuTick = 0;
     NetworkStats m_netStats;
     SysInfo m_sysInfo;
 };

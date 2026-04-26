@@ -11,10 +11,12 @@ public:
     int GetWindowY(int defaultY) const;
     int GetRefreshMs(int defaultMs) const;
     int GetOpacity(int defaultOpacity) const;
+    bool GetClickThrough(bool defaultVal) const;
 
     void SetWindowPos(int x, int y);
     void SetRefreshMs(int ms);
     void SetOpacity(int opacity);
+    void SetClickThrough(bool enabled);
 
 private:
     std::wstring m_iniPath;
