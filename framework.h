@@ -30,6 +30,8 @@
 #include <tlhelp32.h>
 #include <powrprof.h>
 #pragma comment(lib, "powrprof.lib")
+#include <commctrl.h>
+#pragma comment(lib, "comctl32.lib")
 
 #define _LMERRLOG_
 #define _LMAUDIT_

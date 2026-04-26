@@ -5,6 +5,7 @@
 #include "OverlayRenderer.h"
 #include "Config.h"
 #include "Logger.h"
+#include <commctrl.h>
 
 constexpr int MAX_LOADSTRING = 100;
 constexpr int WINDOW_WIDTH = 320;
@@ -19,9 +20,8 @@ constexpr int IDM_TOGGLE_CLICKTHROUGH = 110;
 constexpr int IDM_REFRESH_1000 = 111;
 constexpr int IDM_REFRESH_2000 = 112;
 constexpr int IDM_REFRESH_5000 = 113;
-constexpr int IDM_OPACITY_204 = 114;
-constexpr int IDM_OPACITY_230 = 115;
-constexpr int IDM_OPACITY_255 = 116;
+constexpr int IDM_REFRESH_500 = 115;
+constexpr int IDM_SET_OPACITY = 114;
 constexpr int HK_CLICKTHROUGH = 1;
 
 struct AppState {
@@ -35,6 +35,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int, SystemMonitor*, OverlayRenderer*, Config*);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK OpacityDlg(HWND, UINT, WPARAM, LPARAM);
 
 ATOM MyRegisterClass(HINSTANCE hInstance) {
     WNDCLASSEXW wcex = {};
@@ -134,12 +135,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (!state || !state->config) break;
         bool ct = state->clickThrough;
         int curRefresh = state->config->GetRefreshMs(2000);
-        int curOpacity = state->config->GetOpacity(255);
 
         HMENU hMenu = CreatePopupMenu();
         HMENU hRefreshMenu = CreatePopupMenu();
-        HMENU hOpacityMenu = CreatePopupMenu();
 
+        AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 500 ? MF_CHECKED : 0),
+                    IDM_REFRESH_500, L"实时");
         AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 1000 ? MF_CHECKED : 0),
                     IDM_REFRESH_1000, L"1 秒");
         AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 2000 ? MF_CHECKED : 0),
@@ -147,17 +148,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         AppendMenuW(hRefreshMenu, MF_STRING | (curRefresh == 5000 ? MF_CHECKED : 0),
                     IDM_REFRESH_5000, L"5 秒");
 
-        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 204 ? MF_CHECKED : 0),
-                    IDM_OPACITY_204, L"80%");
-        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 230 ? MF_CHECKED : 0),
-                    IDM_OPACITY_230, L"90%");
-        AppendMenuW(hOpacityMenu, MF_STRING | (curOpacity == 255 ? MF_CHECKED : 0),
-                    IDM_OPACITY_255, L"100%");
-
         AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hRefreshMenu),
                     L"刷新间隔(&R)");
-        AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hOpacityMenu),
-                    L"透明度(&O)");
+        AppendMenuW(hMenu, MF_STRING, IDM_SET_OPACITY, L"设置透明度(&O)...");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING | (ct ? MF_CHECKED : 0), IDM_TOGGLE_CLICKTHROUGH,
                     L"点击穿透(&T)");
@@ -189,12 +182,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
+        case IDM_REFRESH_500:
         case IDM_REFRESH_1000:
         case IDM_REFRESH_2000:
         case IDM_REFRESH_5000: {
             auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
             if (st && st->config && st->monitor) {
-                int newMs = (wmId == IDM_REFRESH_1000) ? 1000 :
+                int newMs = (wmId == IDM_REFRESH_500) ? 500 :
+                            (wmId == IDM_REFRESH_1000) ? 1000 :
                             (wmId == IDM_REFRESH_2000) ? 2000 : 5000;
                 KillTimer(hWnd, IDT_REFRESH);
                 SetTimer(hWnd, IDT_REFRESH, newMs, nullptr);
@@ -203,15 +198,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
-        case IDM_OPACITY_204:
-        case IDM_OPACITY_230:
-        case IDM_OPACITY_255: {
+        case IDM_SET_OPACITY: {
             auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
             if (st && st->config && st->renderer) {
-                int newOpacity = (wmId == IDM_OPACITY_204) ? 204 :
-                                 (wmId == IDM_OPACITY_230) ? 230 : 255;
-                st->renderer->SetOpacity(newOpacity);
-                st->config->SetOpacity(newOpacity);
+                int curOpacity = st->config->GetOpacity(255);
+                int pct = (curOpacity * 100) / 255;
+                if (pct < 10) pct = 10;
+                INT_PTR result = DialogBoxParam(hInst, MAKEINTRESOURCE(IDD_OPACITYBOX), hWnd,
+                                                OpacityDlg, reinterpret_cast<LPARAM>(&pct));
+                if (result == IDOK) {
+                    int newOpacity = (pct * 255) / 100;
+                    if (newOpacity < 26) newOpacity = 26;
+                    st->renderer->SetOpacity(newOpacity);
+                    st->config->SetOpacity(newOpacity);
+                }
             }
             break;
         }
@@ -241,6 +241,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
         }
         break;
+    case WM_MOUSEWHEEL: {
+        auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+        if (st && st->config && st->renderer) {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+            int curOpacity = st->config->GetOpacity(255);
+            int newOpacity = curOpacity + delta * 13;  // ~5% per notch
+            if (newOpacity < 26) newOpacity = 26;
+            if (newOpacity > 255) newOpacity = 255;
+            st->renderer->SetOpacity(newOpacity);
+            st->config->SetOpacity(newOpacity);
+        }
+        break;
+    }
     case WM_DESTROY: {
         UnregisterHotKey(hWnd, HK_CLICKTHROUGH);
         auto* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
@@ -276,6 +289,39 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
     return (INT_PTR)FALSE;
 }
 
+INT_PTR CALLBACK OpacityDlg(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+    static int* pPct = nullptr;
+
+    switch (message) {
+    case WM_INITDIALOG: {
+        pPct = reinterpret_cast<int*>(lParam);
+        HWND hSlider = GetDlgItem(hDlg, IDC_OPACITY_SLIDER);
+        SendMessageW(hSlider, TBM_SETRANGE, TRUE, MAKELONG(10, 100));
+        SendMessageW(hSlider, TBM_SETPOS, TRUE, *pPct);
+        WCHAR buf[16];
+        swprintf_s(buf, L"%d%%", *pPct);
+        SetDlgItemTextW(hDlg, IDC_OPACITY_PERCENT, buf);
+        return (INT_PTR)TRUE;
+    }
+    case WM_HSCROLL: {
+        HWND hSlider = GetDlgItem(hDlg, IDC_OPACITY_SLIDER);
+        int pos = (int)SendMessageW(hSlider, TBM_GETPOS, 0, 0);
+        WCHAR buf[16];
+        swprintf_s(buf, L"%d%%", pos);
+        SetDlgItemTextW(hDlg, IDC_OPACITY_PERCENT, buf);
+        *pPct = pos;
+        break;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+            EndDialog(hDlg, LOWORD(wParam));
+            return (INT_PTR)TRUE;
+        }
+        break;
+    }
+    return (INT_PTR)FALSE;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
     _In_ LPWSTR lpCmdLine,
@@ -283,6 +329,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
+
+    InitCommonControls();
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {

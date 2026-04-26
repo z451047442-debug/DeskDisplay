@@ -14,6 +14,9 @@
 #define IDC_DESKDISPAY			109
 #define IDC_MYICON				2
 #define IDT_REFRESH				1001
+#define IDD_OPACITYBOX			120
+#define IDC_OPACITY_SLIDER		121
+#define IDC_OPACITY_PERCENT		122
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1
 #endif
