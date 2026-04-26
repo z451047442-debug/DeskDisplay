@@ -12,11 +12,13 @@ public:
     int GetRefreshMs(int defaultMs) const;
     int GetOpacity(int defaultOpacity) const;
     bool GetClickThrough(bool defaultVal) const;
+    bool GetAlwaysOnTop(bool defaultVal) const;
 
     void SetWindowPos(int x, int y);
     void SetRefreshMs(int ms);
     void SetOpacity(int opacity);
     void SetClickThrough(bool enabled);
+    void SetAlwaysOnTop(bool enabled);
 
 private:
     std::wstring m_iniPath;

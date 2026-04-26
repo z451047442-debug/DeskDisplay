@@ -32,3 +32,5 @@ void Config::SetWindowPos(int x, int y) { WriteInt(L"Window", L"X", x); WriteInt
 void Config::SetRefreshMs(int ms) { WriteInt(L"General", L"RefreshMs", ms); }
 void Config::SetOpacity(int opacity) { WriteInt(L"General", L"Opacity", opacity); }
 void Config::SetClickThrough(bool enabled) { WriteInt(L"General", L"ClickThrough", enabled ? 1 : 0); }
+bool Config::GetAlwaysOnTop(bool defaultVal) const { return ReadInt(L"General", L"AlwaysOnTop", defaultVal ? 1 : 0) != 0; }
+void Config::SetAlwaysOnTop(bool enabled) { WriteInt(L"General", L"AlwaysOnTop", enabled ? 1 : 0); }

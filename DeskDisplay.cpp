@@ -22,6 +22,7 @@ constexpr int IDM_REFRESH_2000 = 112;
 constexpr int IDM_REFRESH_5000 = 113;
 constexpr int IDM_REFRESH_500 = 115;
 constexpr int IDM_SET_OPACITY = 114;
+constexpr int IDM_TOGGLE_TOPMOST = 116;
 constexpr int HK_CLICKTHROUGH = 1;
 
 struct AppState {
@@ -29,6 +30,7 @@ struct AppState {
     OverlayRenderer* renderer;
     Config* config;
     bool clickThrough = false;
+    bool alwaysOnTop = false;
 };
 
 ATOM MyRegisterClass(HINSTANCE hInstance);
@@ -64,7 +66,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow, SystemMonitor* monitor,
     renderer->SetOpacity(opacity);
 
     HWND hWnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW,
         szWindowClass, szTitle,
         WS_POPUP,
         x, posY, WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -77,6 +79,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow, SystemMonitor* monitor,
     if (state->clickThrough) {
         LONG_PTR exStyle = GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+    }
+    state->alwaysOnTop = config->GetAlwaysOnTop(false);
+    if (state->alwaysOnTop) {
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
 
@@ -119,6 +125,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         dragging = false;
         ReleaseCapture();
         break;
+    case WM_MOUSEACTIVATE: {
+        auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+        if (st && !st->alwaysOnTop) return MA_NOACTIVATE;
+        break;
+    }
+    case WM_WINDOWPOSCHANGING: {
+        auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+        if (st && !st->alwaysOnTop) {
+            WINDOWPOS* wp = reinterpret_cast<WINDOWPOS*>(lParam);
+            wp->hwndInsertAfter = HWND_BOTTOM;
+            wp->flags |= SWP_NOACTIVATE;
+        }
+        break;
+    }
     case WM_TIMER:
         if (wParam == IDT_REFRESH) {
             auto* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
@@ -134,6 +154,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         auto* state = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
         if (!state || !state->config) break;
         bool ct = state->clickThrough;
+        bool top = state->alwaysOnTop;
         int curRefresh = state->config->GetRefreshMs(2000);
 
         HMENU hMenu = CreatePopupMenu();
@@ -154,6 +175,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING | (ct ? MF_CHECKED : 0), IDM_TOGGLE_CLICKTHROUGH,
                     L"点击穿透(&T)");
+        AppendMenuW(hMenu, MF_STRING | (top ? MF_CHECKED : 0), IDM_TOGGLE_TOPMOST,
+                    L"窗口置顶(&P)");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, IDM_ABOUT, L"关于(&A)...");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -179,6 +202,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     SetWindowLongPtrW(hWnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
                 }
                 if (st->config) st->config->SetClickThrough(st->clickThrough);
+            }
+            break;
+        }
+        case IDM_TOGGLE_TOPMOST: {
+            auto* st = reinterpret_cast<AppState*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+            if (st) {
+                st->alwaysOnTop = !st->alwaysOnTop;
+                if (st->alwaysOnTop) {
+                    SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                } else {
+                    SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+                if (st->config) st->config->SetAlwaysOnTop(st->alwaysOnTop);
             }
             break;
         }
