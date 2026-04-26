@@ -1,0 +1,35 @@
+# Visual Studio build artifacts
+.vs/
+Debug/
+Release/
+x64/
+x86/
+*.user
+*.ipch
+*.db
+*.db-shm
+*.db-wal
+*.opendb
+*.suo
+*.wsuo
+slnx.sqlite
+CopilotIndices/
+
+# Build output
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.iobj
+*.ipdb
+
+# Generated files
+*.aps
+*.log
+*.rc.tmp
+
+# Code signing
+*.pfx
+*.ps1
